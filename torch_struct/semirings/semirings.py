@@ -192,7 +192,7 @@ def KMaxSemiring(k):
                 dtype=orig_potentials.dtype,
                 device=orig_potentials.device,
             )
-            potentials = cls.fill(potentials, torch.tensor(True), cls.zero)
+            potentials = cls.fill(potentials, torch.tensor(True, device=orig_potentials.device), cls.zero)
             potentials[0] = orig_potentials
             return potentials
 
