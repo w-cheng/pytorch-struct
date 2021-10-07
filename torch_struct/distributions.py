@@ -19,6 +19,17 @@ from .semirings import (
     GumbelCRFSemiring,
 )
 
+has_genbmm = False
+FAST_SEMIRINGS = {}
+NORMAL_SEMIRINGS = {'log': LogSemiring, 'max': MaxSemiring}
+try:
+    import genbmm
+    has_genbmm = True
+    from .semirings import FastLogSemiring, FastMaxSemiring
+    FAST_SEMIRINGS = {'log': FastLogSemiring, 'max': FastMaxSemiring}
+except ImportError:
+    pass
+
 
 class StructDistribution(Distribution):
     r"""
@@ -118,7 +129,7 @@ class StructDistribution(Distribution):
         Returns:
             max (*batch_shape*)
         """
-        return self._struct(MaxSemiring).sum(self.log_potentials, self.lengths)
+        return self._struct(self._default_semiring('max')).sum(self.log_potentials, self.lengths)
 
     @lazy_property
     def argmax(self):
@@ -128,7 +139,7 @@ class StructDistribution(Distribution):
         Returns:
             argmax (*batch_shape x event_shape*)
         """
-        return self._struct(MaxSemiring).marginals(self.log_potentials, self.lengths)
+        return self._struct(self._default_semiring('max')).marginals(self.log_potentials, self.lengths)
 
     def kmax(self, k):
         r"""
@@ -176,7 +187,7 @@ class StructDistribution(Distribution):
         Returns:
             marginals (*batch_shape x event_shape*)
         """
-        return self._struct(LogSemiring).marginals(self.log_potentials, self.lengths)
+        return self._struct(self._default_semiring('log')).marginals(self.log_potentials, self.lengths)
 
     @lazy_property
     def count(self):
@@ -203,7 +214,7 @@ class StructDistribution(Distribution):
     @lazy_property
     def partition(self):
         "Compute the log-partition function."
-        return self._struct(LogSemiring).sum(self.log_potentials, self.lengths)
+        return self._struct(self._default_semiring('log')).sum(self.log_potentials, self.lengths)
 
     def sample(self, sample_shape=torch.Size()):
         r"""
@@ -237,7 +248,30 @@ class StructDistribution(Distribution):
         return self.struct.from_parts(event)
 
     def _struct(self, sr=None):
-        return self.struct(sr if sr is not None else LogSemiring)
+        return self.struct(sr if sr is not None else self._default_semiring('log'))
+
+    def _default_semiring(self, name):
+        r"""
+        Return fast semirings if genbmm library is installed and self.log_potentials is on GPU.
+        Only fast version of Log and Max semirings are available for now.
+
+        Parameters:
+            name (str): Semiring name.
+
+        Returns:
+            Semiring class.
+        """
+        assert name in NORMAL_SEMIRINGS
+        log_potentials_is_cuda = False
+        # log potentials of SentCFG is a tuple
+        if isinstance(self.log_potentials, tuple):
+            log_potentials_is_cuda = self.log_potentials[0].is_cuda
+        else:
+            log_potentials_is_cuda = self.log_potentials.is_cuda
+        if has_genbmm and log_potentials_is_cuda:
+            return FAST_SEMIRINGS[name]
+        else:
+            return NORMAL_SEMIRINGS[name]
 
 
 class LinearChainCRF(StructDistribution):
